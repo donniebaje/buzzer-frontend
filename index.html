@@ -213,6 +213,8 @@
     // ===== CONFIG: CHANGE THIS TO YOUR RENDER BACKEND URL =====
     const BACKEND_URL = "https://buzzer-backend-vx86.onrender.com";
 
+
+    
     // Screen elements
     const screenJoin = document.getElementById("screenJoin");
     const screenGame = document.getElementById("screenGame");
@@ -233,6 +235,62 @@
     const faciResetBtn = document.getElementById("faciResetBtn");
     const faciBackBtn = document.getElementById("faciBackBtn");
     const faciShowRankingCheckbox = document.getElementById("faciShowRanking");
+
+    // ========== Web Audio SFX ==========
+
+let audioCtx = null;
+
+function getAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+  }
+  return audioCtx;
+}
+
+function playTone(freq, duration, type = "sine", gainValue = 1.0, startOffset = 0) {
+  const ctx = getAudioCtx();
+  const now = ctx.currentTime + startOffset;
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, now);
+  gain.gain.setValueAtTime(gainValue, now);
+
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start(now);
+  osc.stop(now + duration);
+}
+
+// Sharp game-show buzzer
+function playBuzzSfx() {
+  // Two short square bursts, high volume
+  playTone(220, 0.08, "square", 1.0, 0);
+  playTone(140, 0.12, "square", 1.0, 0.08);
+}
+
+// Winner sound – rising confirmation
+function playWinnerSfx() {
+  playTone(440, 0.12, "sine", 0.9, 0);
+  playTone(660, 0.12, "sine", 0.9, 0.12);
+  playTone(880, 0.25, "sine", 1.0, 0.24);
+}
+
+// Reset – round start chime
+function playResetSfx() {
+  playTone(523.25, 0.12, "sine", 0.9, 0);    // C5
+  playTone(659.25, 0.2, "sine", 0.9, 0.12);  // E5
+}
+
+// Ready – subtle ping when buzzers turn green
+function playReadySfx() {
+  playTone(880, 0.12, "sine", 0.8, 0);
+}
+
 
     let currentState = null;
     let playerName = "";
@@ -329,11 +387,16 @@
           faciMsg += rankingHTML;
         }
 
-        setStatusGame(gameMsg);
-        setStatusFaci(faciMsg);
+     setStatusGame(gameMsg);
+setStatusFaci(faciMsg);
 
-        // Winner exists → all buzzers disabled (grey)
-        setBuzzVisual(false);
+// No winner yet → all buzzers enabled (green)
+// If we were previously disabled, play "ready" ping
+if (buzzBtn.classList.contains("buzz-disabled")) {
+  playReadySfx();
+}
+setBuzzVisual(true);
+
       } else {
         let gameMsg =
           `Round ${currentState.roundId}: Standby.<br/>` +
@@ -355,19 +418,23 @@
       }
     }
 
-    async function sendBuzz() {
-      if (!playerName) {
-        alert("Enter a Laptop / Player Name first.");
-        showScreen("join");
-        return;
-      }
+   async function sendBuzz() {
+  if (!playerName) {
+    alert("Enter a Laptop / Player Name first.");
+    showScreen("join");
+    return;
+  }
 
-      try {
-        const res = await fetch(BACKEND_URL + "/api/buzz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ playerName })
-        });
+  // Play buzzer immediately on click (user gesture)
+  playBuzzSfx();
+
+  try {
+    const res = await fetch(BACKEND_URL + "/api/buzz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerName })
+    });
+
         const data = await res.json();
         if (!data.ok) {
           alert("Error: " + (data.error || "Unknown error"));
@@ -375,15 +442,18 @@
         }
         currentState = data;
 
-        if (data.first) {
-          setStatusGame(
-            `🎉 You won Round ${data.roundId}!<br/><span class="winner">${data.winner}</span>`
-          );
-        } else {
-          setStatusGame(
-            `Too late. Winner is <span class="winner">${data.winner}</span> for Round ${data.roundId}.`
-          );
-        }
+ if (data.first) {
+  // You are the first – play winner SFX
+  playWinnerSfx();
+  setStatusGame(
+    `🎉 You won Round ${data.roundId}!<br/><span class="winner">${data.winner}</span>`
+  );
+} else {
+  setStatusGame(
+    `Too late. Winner is <span class="winner">${data.winner}</span> for Round ${data.roundId}.`
+  );
+}
+
         // After you buzz, your button is disabled (grey)
         setBuzzVisual(false);
       } catch (err) {
@@ -392,25 +462,28 @@
       }
     }
 
-    async function resetRound() {
-      if (!confirm("Reset the round for ALL laptops and arm all buzzers (green)?")) return;
+async function resetRound() {
+  if (!confirm("Reset the round for ALL laptops and arm all buzzers (green)?")) return;
 
-      try {
-        const res = await fetch(BACKEND_URL + "/api/reset", {
-          method: "POST"
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          alert("Error resetting: " + (data.error || "Unknown error"));
-          return;
-        }
-        currentState = data;
-        updateUIFromState();
-      } catch (err) {
-        console.error(err);
-        alert("Error talking to server.");
-      }
+  try {
+    const res = await fetch(BACKEND_URL + "/api/reset", {
+      method: "POST"
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      alert("Error resetting: " + (data.error || "Unknown error"));
+      return;
     }
+    currentState = data;
+    // Play reset chime on facilitator side
+    playResetSfx();
+    updateUIFromState();
+  } catch (err) {
+    console.error(err);
+    alert("Error talking to server.");
+  }
+}
+
 
     async function updateSettingsShowRanking(showRanking) {
       try {
@@ -522,6 +595,7 @@
   </script>
 </body>
 </html>
+
 
 
 
