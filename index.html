@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Who Clicked First? – Multi-Laptop Buzzer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      margin-top: 10px;
+      text-align: center;
+    }
+    .container {
+      background: #fff;
+      padding: 20px 25px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      max-width: 480px;
+      width: 100%;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    label {
+      display: block;
+      margin: 10px 0 5px;
+      font-weight: bold;
+      text-align: left;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    .status {
+      margin: 12px 0;
+      padding: 10px;
+      border-radius: 6px;
+      background: #e9f3ff;
+      border: 1px solid #c6ddff;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+    .status span.winner {
+      font-weight: bold;
+      font-size: 18px;
+    }
+    button {
+      font-size: 18px;
+      padding: 12px 20px;
+      margin: 10px 5px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      min-width: 140px;
+    }
+    #buzzBtn {
+      font-size: 24px;
+      font-weight: bold;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .row {
+      margin-top: 12px;
+    }
+    small {
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Who Clicked First?</h1>
+  <div class="container">
+    <label for="playerName">Laptop / Player Name</label>
+    <input type="text" id="playerName" placeholder="e.g., Laptop 1, Donnie, Team A" />
+
+    <div class="status" id="statusBox">
+      Connecting to server…
+    </div>
+
+    <button id="buzzBtn" disabled>BUZZ!</button>
+
+    <div class="row">
+      <button id="joinBtn">Join / Update Name</button>
+      <button id="resetBtn">Reset Round</button>
+    </div>
+    <div class="row">
+      <small>
+        Open this page on multiple laptops. The first BUZZ! wins for the current round.
+      </small>
+    </div>
+  </div>
+
+  <script>
+    // ===== CONFIG: CHANGE THIS TO YOUR RENDER BACKEND URL =====
+    const BACKEND_URL = "https://your-buzzer-backend.onrender.com";
+
+    const playerNameInput = document.getElementById("playerName");
+    const statusBox = document.getElementById("statusBox");
+    const buzzBtn = document.getElementById("buzzBtn");
+    const joinBtn = document.getElementById("joinBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    let currentState = null;
+
+    function setStatus(html) {
+      statusBox.innerHTML = html;
+    }
+
+    function setBuzzEnabled(enabled) {
+      buzzBtn.disabled = !enabled;
+    }
+
+    async function fetchState() {
+      try {
+        const res = await fetch(BACKEND_URL + "/api/state");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        currentState = await res.json();
+        updateUIFromState();
+      } catch (err) {
+        setStatus("Error connecting to server. Check backend.");
+        setBuzzEnabled(true); // still allow tapping; backend will decide
+        console.error(err);
+      }
+    }
+
+    function updateUIFromState() {
+      if (!currentState) {
+        setStatus("No state.");
+        setBuzzEnabled(false);
+        return;
+      }
+
+      if (currentState.winner) {
+        const winnerName = currentState.winner;
+        const when = currentState.winnerTime
+          ? new Date(currentState.winnerTime).toLocaleTimeString()
+          : "";
+        setStatus(
+          `Winner for Round ${currentState.roundId}: <span class="winner">${winnerName}</span><br/><small>${when}</small>`
+        );
+        // If someone already won, lock buzzing for everyone
+        setBuzzEnabled(false);
+      } else {
+        setStatus(`Round ${currentState.roundId}: No winner yet. Press BUZZ!`);
+        setBuzzEnabled(true);
+      }
+    }
+
+    async function sendBuzz() {
+      const name = playerNameInput.value.trim();
+      if (!name) {
+        alert("Enter a Laptop / Player Name first.");
+        return;
+      }
+
+      try {
+        const res = await fetch(BACKEND_URL + "/api/buzz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerName: name })
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          alert("Error: " + (data.error || "Unknown error"));
+          return;
+        }
+        currentState = data;
+        if (data.first) {
+          setStatus(
+            `🎉 You won Round ${data.roundId}!<br/><span class="winner">${data.winner}</span>`
+          );
+        } else {
+          setStatus(
+            `Too late. Winner is <span class="winner">${data.winner}</span> for Round ${data.roundId}.`
+          );
+        }
+        setBuzzEnabled(false);
+      } catch (err) {
+        console.error(err);
+        alert("Error talking to server.");
+      }
+    }
+
+    async function resetRound() {
+      // Optional: you can add a simple "admin code" here
+      // const code = prompt("Enter reset code:");
+      // if (code !== "1234") return;
+
+      if (!confirm("Reset the round for ALL laptops?")) return;
+
+      try {
+        const res = await fetch(BACKEND_URL + "/api/reset", {
+          method: "POST"
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          alert("Error resetting: " + (data.error || "Unknown error"));
+          return;
+        }
+        currentState = data;
+        updateUIFromState();
+      } catch (err) {
+        console.error(err);
+        alert("Error talking to server.");
+      }
+    }
+
+    // Wire up buttons
+    buzzBtn.addEventListener("click", sendBuzz);
+
+    // Join button is mostly for UX (forces them to type a name)
+    joinBtn.addEventListener("click", () => {
+      if (!playerNameInput.value.trim()) {
+        alert("Enter a Laptop / Player Name first.");
+        return;
+      }
+      alert("Name saved on this device. You can now BUZZ.");
+      setBuzzEnabled(true);
+    });
+
+    resetBtn.addEventListener("click", resetRound);
+
+    // Poll state every second so everyone sees live updates
+    fetchState();
+    setInterval(fetchState, 1000);
+  </script>
+</body>
+</html>
