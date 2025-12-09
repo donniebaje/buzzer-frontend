@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Who Clicked First? – Multi-Laptop Buzzer v2 </title>
+  <title>Insights Training Game buzzer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body {
@@ -76,13 +76,21 @@
       cursor: not-allowed;
     }
 
-    /* BUZZ button visual states */
+    /* BUZZ button visual states + size (x6) */
     #buzzBtn {
-      font-size: 24px;
+      font-size: 48px;
       font-weight: bold;
+      width: 100%;
+      height: 220px;
+      padding: 40px 20px;
+      box-sizing: border-box;
     }
-    .buzz-ready {
+    .buzz-armed {
       background-color: #2e7d32; /* green */
+      color: #fff;
+    }
+    .buzz-locked {
+      background-color: #c62828; /* red */
       color: #fff;
     }
     .buzz-disabled {
@@ -123,10 +131,28 @@
       padding-left: 20px;
       margin: 4px 0 0;
     }
+
+    .ready-list {
+      text-align: left;
+      margin-top: 8px;
+      width: 100%;
+      max-width: 360px;
+    }
+    .ready-list ul {
+      padding-left: 20px;
+      margin: 4px 0 0;
+    }
+
+    .footer {
+      margin-top: 20px;
+      font-size: 10px;
+      color: #777;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <h1>Who Clicked First?</h1>
+  <h1>Insights Training Game buzzer</h1>
 
   <!-- SCREEN 1: JOIN -->
   <div class="container" id="screenJoin">
@@ -152,7 +178,7 @@
 
   <!-- SCREEN 2: GAME (PARTICIPANT) -->
   <div class="container" id="screenGame" style="display:none;">
-    <h2>Game Screen</h2>
+    <h2>Participant Screen</h2>
     <div class="name-display">
       Playing as: <strong><span id="currentNameLabel"></span></strong>
       <br />
@@ -165,12 +191,12 @@
       Connecting to server…
     </div>
 
-    <button id="buzzBtn" class="buzz-disabled" disabled>BUZZ!</button>
+    <button id="buzzBtn" class="buzz-locked" disabled>BUZZ!</button>
 
     <div class="row">
       <small>
-        When the facilitator resets the round, your BUZZ button will turn <strong>green</strong> (standby).  
-        First green BUZZ click wins.
+        Your BUZZ button is <span style="color:#c62828;">red</span> when locked,<br/>
+        <span style="color:#2e7d32;">green</span> when ready. Wait for facilitator.
       </small>
     </div>
   </div>
@@ -191,7 +217,7 @@
     </div>
 
     <div class="row">
-      <button id="faciResetBtn">Reset Round / Turn All Buzzers Green</button>
+      <button id="faciResetBtn">Reset / Arm Buzzers (all laptops)</button>
     </div>
 
     <div class="row">
@@ -202,20 +228,74 @@
 
     <div class="row">
       <small>
-        Use Reset between questions.<br/>
-        Until you reset, buzzers stay <strong>disabled</strong> (grey).<br/>
+        Until you reset, buzzers stay <strong>locked and red</strong>.<br/>
         After reset, all participants see a <strong>green BUZZ</strong> at the same time.
       </small>
     </div>
   </div>
 
+  <div class="footer">
+    Copyright (C) Insights Training (donniebaje@gmail.com)
+  </div>
+
   <script>
     // ===== CONFIG: CHANGE THIS TO YOUR RENDER BACKEND URL =====
-    const BACKEND_URL = "https://buzzer-backend-vx86.onrender.com";
+    const BACKEND_URL = "https://your-buzzer-backend.onrender.com";
 
+    // ========== Web Audio SFX ==========
+    let audioCtx = null;
 
-    
-    // Screen elements
+    function getAudioCtx() {
+      if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AC();
+      }
+      return audioCtx;
+    }
+
+    function playTone(freq, duration, type = "sine", gainValue = 1.0, startOffset = 0) {
+      const ctx = getAudioCtx();
+      const now = ctx.currentTime + startOffset;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(gainValue, now);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + duration);
+    }
+
+    // Sharp game-show buzzer
+    function playBuzzSfx() {
+      playTone(220, 0.08, "square", 1.0, 0);
+      playTone(140, 0.12, "square", 1.0, 0.08);
+    }
+
+    // Winner sound – rising confirmation
+    function playWinnerSfx() {
+      playTone(440, 0.12, "sine", 0.9, 0);
+      playTone(660, 0.12, "sine", 0.9, 0.12);
+      playTone(880, 0.25, "sine", 1.0, 0.24);
+    }
+
+    // Reset – round start chime
+    function playResetSfx() {
+      playTone(523.25, 0.12, "sine", 0.9, 0);
+      playTone(659.25, 0.2, "sine", 0.9, 0.12);
+    }
+
+    // Ready – subtle ping when buzzers turn green
+    function playReadySfx() {
+      playTone(880, 0.12, "sine", 0.8, 0);
+    }
+
+    // ===== DOM refs =====
     const screenJoin = document.getElementById("screenJoin");
     const screenGame = document.getElementById("screenGame");
     const screenFaci = document.getElementById("screenFaci");
@@ -235,62 +315,6 @@
     const faciResetBtn = document.getElementById("faciResetBtn");
     const faciBackBtn = document.getElementById("faciBackBtn");
     const faciShowRankingCheckbox = document.getElementById("faciShowRanking");
-
-    // ========== Web Audio SFX ==========
-
-let audioCtx = null;
-
-function getAudioCtx() {
-  if (!audioCtx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    audioCtx = new AC();
-  }
-  return audioCtx;
-}
-
-function playTone(freq, duration, type = "sine", gainValue = 1.0, startOffset = 0) {
-  const ctx = getAudioCtx();
-  const now = ctx.currentTime + startOffset;
-
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, now);
-  gain.gain.setValueAtTime(gainValue, now);
-
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-
-  osc.start(now);
-  osc.stop(now + duration);
-}
-
-// Sharp game-show buzzer
-function playBuzzSfx() {
-  // Two short square bursts, high volume
-  playTone(220, 0.08, "square", 1.0, 0);
-  playTone(140, 0.12, "square", 1.0, 0.08);
-}
-
-// Winner sound – rising confirmation
-function playWinnerSfx() {
-  playTone(440, 0.12, "sine", 0.9, 0);
-  playTone(660, 0.12, "sine", 0.9, 0.12);
-  playTone(880, 0.25, "sine", 1.0, 0.24);
-}
-
-// Reset – round start chime
-function playResetSfx() {
-  playTone(523.25, 0.12, "sine", 0.9, 0);    // C5
-  playTone(659.25, 0.2, "sine", 0.9, 0.12);  // E5
-}
-
-// Ready – subtle ping when buzzers turn green
-function playReadySfx() {
-  playTone(880, 0.12, "sine", 0.8, 0);
-}
-
 
     let currentState = null;
     let playerName = "";
@@ -318,25 +342,43 @@ function playReadySfx() {
       if (statusBoxFaci) statusBoxFaci.innerHTML = html;
     }
 
-    function setBuzzVisual(enabled) {
-      buzzBtn.disabled = !enabled;
-      if (enabled) {
-        buzzBtn.classList.remove("buzz-disabled");
-        buzzBtn.classList.add("buzz-ready");
+    function setBuzzVisual(mode) {
+      buzzBtn.classList.remove("buzz-armed", "buzz-disabled", "buzz-locked");
+      if (mode === "armed") {
+        buzzBtn.disabled = false;
+        buzzBtn.classList.add("buzz-armed");
+      } else if (mode === "locked") {
+        buzzBtn.disabled = true;
+        buzzBtn.classList.add("buzz-locked");
       } else {
-        buzzBtn.classList.remove("buzz-ready");
+        buzzBtn.disabled = true;
         buzzBtn.classList.add("buzz-disabled");
       }
     }
 
     function buildRankingHTML(buzzes) {
       if (!buzzes || !buzzes.length) return "";
-      let html = '<div class="ranking-list"><small>Buzz order:</small><ol>';
-      buzzes.forEach((b, idx) => {
+      let html = '<div class="ranking-list"><small>Buzz order (with time):</small><ol>';
+      buzzes.forEach((b) => {
         const name = b.playerName || "Unknown";
-        html += `<li>${name}</li>`;
+        const d = new Date(b.time);
+        const t = d.toLocaleTimeString(undefined, { hour12: false });
+        const ms = String(d.getMilliseconds()).padStart(3, "0");
+        html += `<li>${name} – ${t}.${ms}</li>`;
       });
       html += "</ol></div>";
+      return html;
+    }
+
+    function buildReadyHTML(names) {
+      if (!names || !names.length) {
+        return '<div class="ready-list"><small>Ready participants: (none yet)</small></div>';
+      }
+      let html = '<div class="ready-list"><small>Ready participants:</small><ul>';
+      names.forEach((n) => {
+        html += `<li>${n}</li>`;
+      });
+      html += "</ul></div>";
       return html;
     }
 
@@ -350,7 +392,7 @@ function playReadySfx() {
         console.error(err);
         setStatusGame("Error connecting to server. Backend may be waking up.");
         setStatusFaci("Error connecting to server. Backend may be waking up.");
-        setBuzzVisual(false);
+        setBuzzVisual("disabled");
       }
     }
 
@@ -358,11 +400,11 @@ function playReadySfx() {
       if (!currentState) {
         setStatusGame("No state.");
         setStatusFaci("No state.");
-        setBuzzVisual(false);
+        setBuzzVisual("disabled");
         return;
       }
 
-      // Keep facilitator checkbox synced with server setting
+      // Keep facilitator ranking toggle synced
       if (faciShowRankingCheckbox) {
         faciShowRankingCheckbox.checked = !!currentState.showRanking;
       }
@@ -370,120 +412,129 @@ function playReadySfx() {
       const rankingHTML = currentState.showRanking
         ? buildRankingHTML(currentState.buzzes)
         : "";
+      const readyHTML = buildReadyHTML(currentState.readyPlayers);
 
+      // FACI + GAME messages differ based on armed/winner
+      if (!currentState.armed) {
+        // Not armed yet – buzzers red, not clickable
+        setStatusGame(
+          `Waiting for facilitator to arm the buzzers.<br/><small>Your BUZZ button will turn green when ready.</small>`
+        );
+
+        let faciMsg = `Buzzers are currently <strong>locked</strong> (red) on all laptops.<br/><small>Click "Reset / Arm Buzzers" when you are ready to start.</small>`;
+        faciMsg += readyHTML;
+        if (rankingHTML) faciMsg += rankingHTML;
+        setStatusFaci(faciMsg);
+
+        setBuzzVisual("locked");
+        return;
+      }
+
+      // Armed = true
       if (currentState.winner) {
         const winnerName = currentState.winner;
         const when = currentState.winnerTime
-          ? new Date(currentState.winnerTime).toLocaleTimeString()
+          ? new Date(currentState.winnerTime).toLocaleTimeString(undefined, { hour12: false })
           : "";
 
         let gameMsg =
-          `Winner for Round ${currentState.roundId}: ` +
-          `<span class="winner">${winnerName}</span><br/><small>${when}</small>`;
+          `Winner: <span class="winner">${winnerName}</span><br/><small>${when}</small>`;
         let faciMsg = gameMsg;
 
         if (rankingHTML) {
           gameMsg += rankingHTML;
           faciMsg += rankingHTML;
         }
+        faciMsg += readyHTML;
 
-     setStatusGame(gameMsg);
-setStatusFaci(faciMsg);
+        setStatusGame(gameMsg);
+        setStatusFaci(faciMsg);
 
-// No winner yet → all buzzers enabled (green)
-// If we were previously disabled, play "ready" ping
-if (buzzBtn.classList.contains("buzz-disabled")) {
-  playReadySfx();
-}
-setBuzzVisual(true);
-
+        setBuzzVisual("disabled");
       } else {
+        // Armed and no winner yet
         let gameMsg =
-          `Round ${currentState.roundId}: Standby.<br/>` +
-          `<small>Buzzers are green and ready. Wait for facilitator signal.</small>`;
+          `Standby.<br/><small>Your BUZZ button is green when ready. Wait for facilitator signal.</small>`;
         let faciMsg =
-          `Round ${currentState.roundId}: No winner yet.<br/>` +
-          `<small>Click "Reset Round" only when you are ready for the next question.</small>`;
+          `Buzzers are <strong>armed</strong> and ready.<br/><small>Ask participants to BUZZ when ready.</small>`;
 
         if (rankingHTML) {
           gameMsg += rankingHTML;
           faciMsg += rankingHTML;
         }
+        faciMsg += readyHTML;
 
         setStatusGame(gameMsg);
         setStatusFaci(faciMsg);
 
-        // No winner yet → all buzzers enabled (green)
-        setBuzzVisual(true);
+        // If we were previously not armed, play ready sound
+        if (!buzzBtn.classList.contains("buzz-armed")) {
+          playReadySfx();
+        }
+        setBuzzVisual("armed");
       }
     }
 
-   async function sendBuzz() {
-  if (!playerName) {
-    alert("Enter a Laptop / Player Name first.");
-    showScreen("join");
-    return;
-  }
+    async function sendBuzz() {
+      if (!playerName) {
+        alert("Enter a Laptop / Player Name first.");
+        showScreen("join");
+        return;
+      }
 
-  // Play buzzer immediately on click (user gesture)
-  playBuzzSfx();
+      // Play buzzer immediately on click
+      playBuzzSfx();
 
-  try {
-    const res = await fetch(BACKEND_URL + "/api/buzz", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playerName })
-    });
-
+      try {
+        const res = await fetch(BACKEND_URL + "/api/buzz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerName })
+        });
         const data = await res.json();
         if (!data.ok) {
-          alert("Error: " + (data.error || "Unknown error"));
+          if (data.error) alert("Error: " + data.error);
           return;
         }
         currentState = data;
 
- if (data.first) {
-  // You are the first – play winner SFX
-  playWinnerSfx();
-  setStatusGame(
-    `🎉 You won Round ${data.roundId}!<br/><span class="winner">${data.winner}</span>`
-  );
-} else {
-  setStatusGame(
-    `Too late. Winner is <span class="winner">${data.winner}</span> for Round ${data.roundId}.`
-  );
-}
-
-        // After you buzz, your button is disabled (grey)
-        setBuzzVisual(false);
+        if (data.first) {
+          playWinnerSfx();
+          setStatusGame(
+            `🎉 You won!<br/><span class="winner">${data.winner}</span>`
+          );
+        } else {
+          setStatusGame(
+            `Too late. Winner is <span class="winner">${data.winner}</span>.`
+          );
+        }
+        setBuzzVisual("disabled");
       } catch (err) {
         console.error(err);
         alert("Error talking to server.");
       }
     }
 
-async function resetRound() {
-  if (!confirm("Reset the round for ALL laptops and arm all buzzers (green)?")) return;
+    async function resetRound() {
+      if (!confirm("Reset and arm all buzzers (they will turn green on all laptops)?")) return;
 
-  try {
-    const res = await fetch(BACKEND_URL + "/api/reset", {
-      method: "POST"
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      alert("Error resetting: " + (data.error || "Unknown error"));
-      return;
+      try {
+        const res = await fetch(BACKEND_URL + "/api/reset", {
+          method: "POST"
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          alert("Error resetting: " + (data.error || "Unknown error"));
+          return;
+        }
+        currentState = data;
+        playResetSfx();
+        updateUIFromState();
+      } catch (err) {
+        console.error(err);
+        alert("Error talking to server.");
+      }
     }
-    currentState = data;
-    // Play reset chime on facilitator side
-    playResetSfx();
-    updateUIFromState();
-  } catch (err) {
-    console.error(err);
-    alert("Error talking to server.");
-  }
-}
-
 
     async function updateSettingsShowRanking(showRanking) {
       try {
@@ -497,7 +548,6 @@ async function resetRound() {
           alert("Error updating settings: " + (data.error || "Unknown error"));
           return;
         }
-        // Update local state to reflect change immediately
         if (currentState) {
           currentState.showRanking = data.showRanking;
           updateUIFromState();
@@ -508,9 +558,21 @@ async function resetRound() {
       }
     }
 
+    async function setReadyOnServer(ready) {
+      if (!playerName) return;
+      try {
+        await fetch(BACKEND_URL + "/api/ready", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerName, ready })
+        });
+      } catch (err) {
+        console.error("Error updating ready state:", err);
+      }
+    }
+
     // ----- Event wiring -----
 
-    // Join flow
     joinContinueBtn.addEventListener("click", () => {
       const name = playerNameJoinInput.value.trim();
       const isFaciRequested = isFacilitatorCheckbox.checked;
@@ -521,7 +583,7 @@ async function resetRound() {
         if (pw !== "iloveinsights") {
           alert("Incorrect password.");
           isFacilitatorCheckbox.checked = false;
-          return; // stay on join screen
+          return;
         }
       }
 
@@ -533,7 +595,6 @@ async function resetRound() {
       playerName = name;
       isFacilitatorMode = isFaciRequested;
 
-      // Save in localStorage for convenience
       if (playerName) {
         localStorage.setItem("buzzerPlayerName", playerName);
       }
@@ -541,62 +602,52 @@ async function resetRound() {
 
       if (isFacilitatorMode) {
         showScreen("faci");
+        // Facilitator is not "ready" as participant
+        setReadyOnServer(false);
       } else {
         currentNameLabel.textContent = playerName;
         showScreen("game");
+        setReadyOnServer(true);
       }
     });
 
-    // Update name / change mode
     updateNameBtn.addEventListener("click", () => {
-      // Pre-fill with current name
       playerNameJoinInput.value = playerName || "";
       isFacilitatorCheckbox.checked = false; // back as participant by default
       showScreen("join");
+      setReadyOnServer(false);
     });
 
-    // BUZZ button
     buzzBtn.addEventListener("click", sendBuzz);
 
-    // Facilitator reset button
     faciResetBtn.addEventListener("click", resetRound);
 
-    // Facilitator back button
     faciBackBtn.addEventListener("click", () => {
-      // Go back to join, keeping name + mode flag as last used
       playerNameJoinInput.value = playerName || "";
       isFacilitatorCheckbox.checked = isFacilitatorMode;
       showScreen("join");
     });
 
-    // Facilitator ranking toggle
     faciShowRankingCheckbox.addEventListener("change", () => {
       const desired = faciShowRankingCheckbox.checked;
       updateSettingsShowRanking(desired);
     });
 
     // ----- Initial load -----
-    // Load saved name / mode if any
     const savedName = localStorage.getItem("buzzerPlayerName");
     const savedIsFaci = localStorage.getItem("buzzerIsFacilitator") === "1";
     if (savedName) {
       playerNameJoinInput.value = savedName;
+      playerName = savedName;
     }
     if (savedIsFaci) {
       isFacilitatorCheckbox.checked = true;
     }
 
-    // Start on join screen
     showScreen("join");
 
-    // Start polling backend
     fetchState();
     setInterval(fetchState, 1000);
   </script>
 </body>
 </html>
-
-
-
-
-
